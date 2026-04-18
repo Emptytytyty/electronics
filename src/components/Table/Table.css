@@ -1,0 +1,71 @@
+.table__wrapper {
+  width: 100%;
+  padding-right: 5px;
+  max-height: 80vh;
+  margin-block: 50px;
+  overflow-y: scroll;
+}
+
+.table__wrapper::-webkit-scrollbar {
+  width: 5px;
+  
+}
+
+.table__wrapper::-webkit-scrollbar-thumb {
+  background-color: var(--color-text);
+  border-radius: 10px;
+}
+
+.table__wrapper::-webkit-scrollbar-track {
+  background: var(--color-form-background);
+  border-radius: 10px;
+}
+
+.table {
+  width: calc(100% - 40px);
+  border-spacing: 0;
+}
+
+.table__head tr th {
+  border: 2px solid var(--color-text);
+  text-transform: uppercase;
+}
+
+.table__body {
+  width: 100%;
+}
+
+.table__body tr {
+  position: relative;
+}
+
+.table__body tr th {
+  border: 1px solid;
+  text-align: start;
+  font-size: 1.3rem;
+  padding-left: 5px;
+}
+
+.table__body tr:nth-child(2n) {
+  background-color: var(--color-form-background);
+}
+
+.table__body tr:hover {
+  background-color: var(--color-text);
+  color: var(--color-form-background);
+}
+
+.table__delete-button {
+  position: absolute;
+  left: calc(100% + .5rem);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 10;
+  min-width: auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  background-image: url('../../assets/images/trash.svg');
+  background-repeat: no-repeat;
+  background-position: center;
+}

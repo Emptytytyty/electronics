@@ -1,0 +1,24 @@
+.tabs__menu {
+  width: fit-content;
+  display: flex;
+  padding: 0;
+  margin-block: 50px;
+  margin-inline: auto;
+  gap: 10px;
+}
+
+.tabs__switch {
+  background-color: var(--color-form-background);
+}
+
+.tabs__switch-active {
+  outline: 2px solid var(--color-text);
+}
+
+.tabs__element {
+  display: none;
+}
+
+.tabs__element--active {
+  display: block;
+}
