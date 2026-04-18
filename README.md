@@ -14,3 +14,12 @@ npm run dev
 npm run db
 ```
 4. веб сервер - `http://localhost:5173/`, сервер БД - `http://localhost:3000/`
+5. данные для входа
+Логин
+```
+manager_1
+```
+Пароль
+```
+qwerty123
+```
