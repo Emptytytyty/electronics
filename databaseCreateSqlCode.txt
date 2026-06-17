@@ -1,0 +1,221 @@
+CREATE DATABASE electronics;
+\c electronics;
+CREATE TABLE providers (
+    name VARCHAR(100) PRIMARY KEY,
+    address VARCHAR(200) NOT NULL,
+    phone VARCHAR(20) NOT NULL CHECK(phone ~ '\+7[0-9]{10}'),
+    inn CHAR(10) NOT NULL UNIQUE
+);
+
+CREATE TABLE products (
+    name VARCHAR(100) PRIMARY KEY,
+    provider VARCHAR(100) NOT NULL REFERENCES providers(name) ON UPDATE CASCADE ON DELETE RESTRICT,
+    category VARCHAR(50) NOT NULL,
+    price DECIMAL(12, 2) NOT NULL CHECK (price > 0),
+    count INT NOT NULL CHECK (count >= 0) DEFAULT 0
+);
+
+CREATE TABLE employees (
+    id SERIAL PRIMARY KEY,
+    fio VARCHAR(100) NOT NULL,
+    position VARCHAR(50) NOT NULL,
+    contact_data VARCHAR(100) NOT NULL,
+    admission_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    dismissal_date DATE DEFAULT NULL CHECK(dismissal_date IS NULL OR dismissal_date > admission_date)
+);
+
+CREATE TABLE clients (
+    id SERIAL PRIMARY KEY,
+    fio VARCHAR(100) NOT NULL,
+    contact_data VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    client_id INT NOT NULL REFERENCES clients(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    employee_id INT NOT NULL REFERENCES employees(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    total_price DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_details (
+    id SERIAL PRIMARY KEY,
+    order_id INT NOT NULL REFERENCES orders(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    product_name VARCHAR(100) NOT NULL REFERENCES products(name) ON UPDATE CASCADE ON DELETE RESTRICT,
+    count INT NOT NULL CHECK (count > 0),
+    price DECIMAL(12, 2) NOT NULL DEFAULT 0
+);
+
+-- 1. Функция для вычисления price в order_details
+CREATE OR REPLACE FUNCTION set_order_detail_price()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.price := (
+        SELECT price FROM products WHERE name = NEW.product_name
+    ) * NEW.count;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Функция для обновления total_price
+CREATE OR REPLACE FUNCTION update_order_total_price()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE orders 
+    SET total_price = (
+        SELECT COALESCE(SUM(price), 0)
+        FROM order_details 
+        WHERE order_id = COALESCE(NEW.order_id, OLD.order_id)
+    )
+    WHERE id = COALESCE(NEW.order_id, OLD.order_id);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 3. Функция проверки наличия товара
+CREATE OR REPLACE FUNCTION check_product_availability()
+RETURNS TRIGGER AS $$
+DECLARE
+    available_count INT;
+BEGIN
+    SELECT count INTO available_count
+    FROM products WHERE name = NEW.product_name;
+    
+    IF available_count < NEW.count THEN
+        RAISE EXCEPTION 'Недостаточно товара "%". Доступно: %, Заказано: %', 
+            NEW.product_name, available_count, NEW.count;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 4. Функция обновления склада
+CREATE OR REPLACE FUNCTION update_product_stock()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE products SET count = count - NEW.count WHERE name = NEW.product_name;
+    ELSIF TG_OP = 'UPDATE' THEN
+        UPDATE products SET count = count + OLD.count - NEW.count WHERE name = NEW.product_name;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE products SET count = count + OLD.count WHERE name = OLD.product_name;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Создаем триггеры
+CREATE TRIGGER trg_set_order_detail_price
+BEFORE INSERT OR UPDATE ON order_details
+FOR EACH ROW EXECUTE FUNCTION set_order_detail_price();
+
+CREATE TRIGGER trg_update_order_total
+AFTER INSERT OR UPDATE OR DELETE ON order_details
+FOR EACH ROW EXECUTE FUNCTION update_order_total_price();
+
+CREATE TRIGGER trg_check_product_availability
+BEFORE INSERT OR UPDATE ON order_details
+FOR EACH ROW EXECUTE FUNCTION check_product_availability();
+
+CREATE TRIGGER trg_update_product_stock
+AFTER INSERT OR UPDATE OR DELETE ON order_details
+FOR EACH ROW EXECUTE FUNCTION update_product_stock();
+
+-- Заполнение таблиц
+INSERT INTO providers (name, address, phone, inn) VALUES 
+('ООО "Ромашка"', 'г. Москва, ул. Ленина, 1', '+79990000001', '1234567890'),
+('ИП Иванов', 'г. Санкт-Петербург, ул. Пушкина, 10', '+79990000002', '2345678901'),
+('ОАО "Весна"', 'г. Новосибирск, пр. Мира, 25', '+79990000003', '3456789012'),
+('ЗАО "Луч"', 'г. Екатеринбург, ул. Кирова, 15', '+79990000004', '4567890123'),
+('ООО "Техносила"', 'г. Казань, ул. Баумана, 30', '+79990000005', '5678901234'),
+('ИП Петрова', 'г. Нижний Новгород, ул. Горького, 5', '+79990000006', '6789012345'),
+('ООО "Электроник"', 'г. Челябинск, пр. Ленина, 40', '+79990000007', '7890123456'),
+('АО "Металлстрой"', 'г. Омск, ул. Маркса, 12', '+79990000008', '8901234567'),
+('ООО "Агропром"', 'г. Самара, ул. Советская, 8', '+79990000009', '9012345678'),
+('ИП Сидоров', 'г. Ростов-на-Дону, ул. Красноармейская, 20', '+79990000010', '0123456789');
+
+INSERT INTO products (name, provider, category, price, count) VALUES 
+('Ноутбук Lenovo', 'ООО "Ромашка"', 'Электроника', 50000.00, 15),
+('Мышь компьютерная', 'ИП Иванов', 'Электроника', 1500.00, 50),
+('Клавиатура механическая', 'ОАО "Весна"', 'Электроника', 3500.00, 30),
+('Монитор 24"', 'ЗАО "Луч"', 'Электроника', 15000.00, 20),
+('Смартфон Samsung', 'ООО "Техносила"', 'Электроника', 30000.00, 25),
+('Наушники беспроводные', 'ИП Петрова', 'Электроника', 4000.00, 40),
+('Принтер лазерный', 'ООО "Электроник"', 'Офисная техника', 20000.00, 10),
+('Стол офисный', 'АО "Металлстрой"', 'Мебель', 8000.00, 12),
+('Стул компьютерный', 'ООО "Агропром"', 'Мебель', 5000.00, 18),
+('Коврик для мыши', 'ИП Сидоров', 'Аксессуары', 300.00, 100);
+
+INSERT INTO employees (fio, position, contact_data, admission_date, dismissal_date) VALUES 
+('Смирнов Алексей Владимирович', 'Менеджер', 'smirnov@company.com', '2020-01-15', NULL),
+('Кузнецова Мария Игоревна', 'Продавец', 'kuznetsova@company.com', '2021-03-20', NULL),
+('Попов Дмитрий Сергеевич', 'Администратор', 'popov@company.com', '2019-11-10', NULL),
+('Васильева Анна Петровна', 'Кассир', 'vasileva@company.com', '2022-02-01', NULL),
+('Новиков Иван Александрович', 'Менеджер', 'novikov@company.com', '2020-07-12', '2023-05-30'),
+('Морозова Екатерина Дмитриевна', 'Консультант', 'morozova@company.com', '2021-09-05', NULL),
+('Волков Павел Олегович', 'Продавец', 'volkov@company.com', '2022-04-18', NULL),
+('Алексеева Ольга Викторовна', 'Кассир', 'alekseeva@company.com', '2020-12-03', NULL),
+('Лебедев Сергей Николаевич', 'Менеджер', 'lebedev@company.com', '2018-06-25', NULL),
+('Соколова Татьяна Михайловна', 'Администратор', 'sokolova@company.com', '2021-08-14', NULL);
+
+INSERT INTO clients (fio, contact_data) VALUES 
+('Иванов Петр Сергеевич', 'ivanov@mail.com'),
+('Петрова Ольга Владимировна', 'petrova@mail.com'),
+('Сидоров Андрей Иванович', 'sidorov@mail.com'),
+('Козлова Елена Александровна', 'kozlova@mail.com'),
+('Никитин Михаил Петрович', 'nikitin@mail.com'),
+('Захарова Ирина Сергеевна', 'zaharova@mail.com'),
+('Павлов Алексей Дмитриевич', 'pavlov@mail.com'),
+('Семенова Наталья Викторовна', 'semenova@mail.com'),
+('Федоров Денис Олегович', 'fedorov@mail.com'),
+('Дмитриева Светлана Игоревна', 'dmitrieva@mail.com');
+
+INSERT INTO orders (client_id, employee_id, total_price, date) VALUES 
+(1, 1, 53500.00, '2024-01-15 10:30:00'),
+(2, 2, 1500.00, '2024-01-16 11:45:00'),
+(3, 3, 18500.00, '2024-01-17 14:20:00'),
+(4, 4, 4000.00, '2024-01-18 09:15:00'),
+(5, 5, 8000.00, '2024-01-19 16:40:00'),
+(6, 6, 30000.00, '2024-01-20 13:25:00'),
+(7, 7, 3500.00, '2024-01-21 12:10:00'),
+(8, 8, 5000.00, '2024-01-22 15:50:00'),
+(9, 9, 20000.00, '2024-01-23 10:05:00'),
+(10, 10, 300.00, '2024-01-24 17:30:00');
+
+INSERT INTO order_details (order_id, product_name, count, price) VALUES 
+(1, 'Ноутбук Lenovo', 1, 50000.00),
+(1, 'Мышь компьютерная', 1, 1500.00),
+(1, 'Коврик для мыши', 1, 300.00),
+(2, 'Мышь компьютерная', 1, 1500.00),
+(3, 'Монитор 24"', 1, 15000.00),
+(3, 'Клавиатура механическая', 1, 3500.00),
+(4, 'Наушники беспроводные', 1, 4000.00),
+(5, 'Стол офисный', 1, 8000.00),
+(6, 'Смартфон Samsung', 1, 30000.00),
+(7, 'Клавиатура механическая', 1, 3500.00),
+(8, 'Стул компьютерный', 1, 5000.00),
+(9, 'Принтер лазерный', 1, 20000.00),
+(10, 'Коврик для мыши', 1, 300.00);
+
+-- Создание ролей
+CREATE ROLE manager;
+CREATE ROLE merch;
+CREATE ROLE admin;
+GRANT SELECT ON TABLE products, providers, clients, employees, orders, order_details TO manager;
+GRANT INSERT, DELETE ON TABLE clients, orders, order_details TO manager;
+GRANT UPDATE ON TABLE clients TO manager;
+GRANT USAGE, SELECT ON TABLE clients_id_seq, orders_id_seq, order_details_id_seq TO manager;
+GRANT SELECT ON TABLE employees, orders, order_details TO admin;
+GRANT INSERT, UPDATE, DELETE ON TABLE employees TO admin;
+GRANT USAGE, SELECT ON TABLE employees_id_seq TO admin;
+GRANT SELECT, INSERT, DELETE ON TABLE products, providers TO merch;
+CREATE USER manager_1 WITH PASSWORD 'qwerty123' IN ROLE manager CONNECTION LIMIT 1;
+ALTER ROLE manager_1 SET statement_timeout = '30min';
+CREATE USER manager_2 WITH PASSWORD 'qwerty123' IN ROLE manager CONNECTION LIMIT 1;
+ALTER ROLE manager_2 SET statement_timeout = '30min';
+CREATE USER merch_1 WITH PASSWORD 'qwerty123' IN ROLE merch CONNECTION LIMIT 1;
+ALTER ROLE merch_1 SET statement_timeout = '30min';
+CREATE USER merch_2 WITH PASSWORD 'qwerty123' IN ROLE merch CONNECTION LIMIT 1;
+ALTER ROLE merch_2 SET statement_timeout = '30min';
+CREATE USER admin_1 WITH PASSWORD 'qwerty123' IN ROLE admin CONNECTION LIMIT 1;
+ALTER ROLE admin_1 SET statement_timeout = '30min';
